@@ -1,5 +1,5 @@
-using OrdinaryDiffEqVerner, OrdinaryDiffEqCore, OrdinaryDiffEqExplicitRK
-using DiffEqDevTools, Test
+using OrdinaryDiffEq, OrdinaryDiffEqVerner, OrdinaryDiffEqCore, OrdinaryDiffEqSSPRK
+using DiffEqBase, DiffEqDevTools, LinearAlgebra, Random, Test, Plots
 import OrdinaryDiffEqLowStorageRK
 import ODEProblemLibrary: prob_ode_linear, prob_ode_2Dlinear, prob_ode_bigfloatlinear, prob_ode_bigfloat2Dlinear
 
@@ -10,8 +10,9 @@ const probnum    = prob_ode_linear
 const prob       = prob_ode_2Dlinear
 
 testTol = 2.0
+testTolrkv=2.0
 
-# Custom ODE functions for testing
+# Custom ODE functions for RKV76IIa testing
 function f!(du, u, p, t)
     du[1] = -u[1]
 end
@@ -20,7 +21,7 @@ function f(u, p, t)
     -u
 end
 
-t_end = 64.0
+t_end = 64.0  # Use shorter time span to avoid instability with larger dt values
 setprecision(256)
 prob_oop = ODEProblem(ODEFunction(f; analytic = (u0, p, t) -> exp(-t)), 1.0, (0.0, t_end))
 prob_iip = ODEProblem(ODEFunction(f!; analytic = (u0, p, t) -> [exp(-t)]), [1.0], (0.0, t_end))
@@ -29,37 +30,37 @@ prob_iip = ODEProblem(ODEFunction(f!; analytic = (u0, p, t) -> [exp(-t)]), [1.0]
 # Helper for convergence test consistency
 function check_convergence(dts, prob, alg, order_expected)
     alg_name = string(typeof(alg).name.name)
-    # println("\n" * "="^70)
-    # println("Testing: $alg_name (Expected Order: $order_expected)")
-    # println("="^70)
+    println("\n" * "="^70)
+    println("Testing: $alg_name (Expected Order: $order_expected)")
+    println("="^70)
 
-    # # Compute errors for each dt
-    # errors = []
-    # println("\nComputing errors for each dt:")
-    # for dt in dts
-    #     sol = solve(prob, alg, dt=dt, adaptive=false)
-    #     if prob.f.analytic !== nothing
-    #         error_val = norm(sol.u[end] - prob.f.analytic(prob.u0, prob.p, prob.tspan[2]))
-    #     else
-    #         error_val = norm(sol.u[end] - sol.prob.f.analytic(prob.u0, prob.p, prob.tspan[2]))
-    #     end
-    #     push!(errors, error_val)
-    #     println("  dt = $dt: error = $error_val")
-    # end
+    # Compute errors for each dt
+    errors = []
+    println("\nComputing errors for each dt:")
+    for dt in dts
+        sol = solve(prob, alg, dt=dt, adaptive=false)
+        if prob.f.analytic !== nothing
+            error_val = norm(sol.u[end] - prob.f.analytic(prob.u0, prob.p, prob.tspan[2]))
+        else
+            error_val = norm(sol.u[end] - sol.prob.f.analytic(prob.u0, prob.p, prob.tspan[2]))
+        end
+        push!(errors, error_val)
+        println("  dt = $dt: error = $error_val")
+    end
 
-    # # Print convergence orders between consecutive dt values
-    # println("\nConvergence orders between consecutive dt values:")
-    # for i in 2:length(errors)
-    #     if errors[i] > 0 && errors[i-1] > 0
-    #         order = log(errors[i-1]/errors[i]) / log(dts[i-1]/dts[i])
-    #         println("  Order between dt=$(dts[i-1]) and dt=$(dts[i]): $order")
-    #     end
-    # end
+    # Print convergence orders between consecutive dt values
+    println("\nConvergence orders between consecutive dt values:")
+    for i in 2:length(errors)
+        if errors[i] > 0 && errors[i-1] > 0
+            order = log(errors[i-1]/errors[i]) / log(dts[i-1]/dts[i])
+            println("  Order between dt=$(dts[i-1]) and dt=$(dts[i]): $order")
+        end
+    end
 
-    # # Use DiffEqDevTools for overall convergence estimate
+    # Use DiffEqDevTools for overall convergence estimate
     sim = test_convergence(dts, prob, alg)
-    # println("\nOverall convergence order estimate: $(sim.𝒪est[:final])")
-    # println("="^70)
+    println("\nOverall convergence order estimate: $(sim.𝒪est[:final])")
+    println("="^70)
 
     # @test sim.𝒪est[:final] > order_expected
     @test (sim.𝒪est[:final] > order_expected) || (abs(sim.𝒪est[:final] - order_expected) < testTol)
@@ -161,7 +162,7 @@ println("RKV76IIa")
 dts = [2, 1, 0.5, 0.25]
 
 check_convergence(dts, prob_oop, RKV76IIa(), 7)
-# check_convergence(dts, prob_iip, RKV76IIa(), 7)
+check_convergence(dts, prob_iip, RKV76IIa(), 7)
 
 tabalg = ExplicitRK(tableau = constructVernerEfficient7(BigFloat))
 sol1 = solve(probnumbig, RKV76IIa(); dt = 1 / 2^6, adaptive = false, save_everystep = false)
